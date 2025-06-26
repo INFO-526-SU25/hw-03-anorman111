@@ -520,3 +520,7 @@ q5plot
 ```
 
 The diverging graph is helpful for providing a quick comparison of what proportion of responses fell in the agree (1-2) and disagree(4-5) buckets for each statement by looking at where the bars extend around zero. This would be even better illustrated if I had made the x-axis range from -100 to 100% and perhaps visually separated each side with a line at zero. While the colors for each response are helpful to see which is driving the bar's direction (mostly "strongly agree" responses), I find it less useful for comparing the 5 response types. For this, the alignment of the 100% plot makes it easier to compare and is better for looking at the neutral group, which gets lost in middle of the diverging plot.
+
+```{r}
+git remote -v
+```
