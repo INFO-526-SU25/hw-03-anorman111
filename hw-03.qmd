@@ -1,29 +1,522 @@
 ---
 title: "HW 03"
-author: "INSERT YOUR NAME HERE"
+author: "Ashton Norman"
 format:
   html:
     embed-resources: true
 toc: true
+execute:
+  warning: false
+  error: false
+  message: false
 ---
+
+```{r}
+#| label: Package and Library Loading
+
+#Install packman once in Console:
+#install.packages("pacman")
+
+pacman::p_load(
+  tidyverse,
+  readr,
+  ggplot2,
+  gt,
+  tibble,
+  gridExtra,
+  grid,
+  patchwork,
+  ggpubr,
+  scales,
+  sysfonts, #using a Google font in Dubois challenge, following this https://www.geeksforgeeks.org/r-language/how-to-implement-google-fonts-in-ggplot2-graphs-using-r/
+  showtext,
+  png,
+  janitor,
+  dplyr,
+  ggtext)
+  
+#adding Special Elite font for Q1
+font_add_google(name="Special Elite", family = "Special Elite")
+showtext_auto()
+```
 
 ## 1 - Du Bois challenge.
 
 ```{r}
-#| label: label-me-1
+#| label: Q1 Du Bois Challenge
+#| fig.width: 8
+#| fig.height: 5
+#| dpi: 100
+
+library(cowplot)
+library(magick)
+
+dubois <- read_csv("data/income.csv")
+
+#format the dollar signs
+dubois <- dubois |> 
+  mutate(Class=gsub("\\$", "$  ", Class)) |>
+  mutate(Average_Income=paste0("$  ", Average_Income))
+
+# Create the table data (2 empty + 5 categories)
+key_data <- data.frame(
+  "keycol1"=c("", "", "Class"),             
+  "keycol2"=c("", "", "Average Income"),            
+  "keycol3"=c("Rent.", "" , ""),
+  "keycol4"=c("Food.", "", ""),
+  "keycol5"=c("Clothes.", "", ""),
+  "keycol6"=c("Direct Taxes.", "", ""),
+  "keycol7"=c("Other Exp.", "", "")) #didn't figure out text wrapping
+
+keyrows <- 3
+keycolumns <- 7
+
+key_matrix <- matrix("black", nrow=keyrows, ncol=keycolumns)
+key_matrix[1:2, 1:2] <- NA #remove borders on first 2 columns, first 2 rows
+key_matrix[3, 3:7] <- NA #remove borders on row 3, columns 3-7
+
+dubois_color_row <- c(NA, NA, "black", "#87678b80", "#da9e8c80", "#b0c4de80", "#b0c4de30")
+
+dubois_colors <- matrix(NA, nrow=keyrows, ncol=keycolumns)
+dubois_colors[2, 3:7] <- dubois_color_row[3:7]
+
+# Base theme for tables
+dubois_table_theme <- ttheme_default(
+  core=list(
+    bg_params=list(fill = "transparent", col = "black"),
+    fg_params=list(
+      fontsize=11.5,
+      fontfamily="Special Elite")))
+
+# Unique format for the key at the top
+dubois_table_theme2 <- dubois_table_theme
+dubois_table_theme2$core$bg_params$fill <- dubois_colors
+dubois_table_theme2$core$bg_params$col <- key_matrix
+
+dubois_key_table <- tableGrob(
+  key_data,
+  rows=NULL,
+  cols=NULL,
+  theme=dubois_table_theme2)
+
+#equal column widths across 7 columns
+dubois_key_table$widths <- unit(rep(1 / 7, 7), "npc")
+dubois_key_table$gp <- gpar(fill=NA, col=NA)
+
+
+# columns to left of bar plots
+
+dubois_leftcol <- dubois |>
+  select(Class, Average_Income) |>
+  setNames(NULL) 
+  
+dubois_leftcol2 <- tableGrob(
+  dubois_leftcol,
+  rows=NULL,
+  cols=NULL,
+  theme=dubois_table_theme)
+
+dubois_leftcol2$widths <- unit(c(.5,.5), "npc")
+dubois_leftcol2$heights <- unit(rep(2.7, 7), "lines")
+dubois_leftcol2$gp <- gpar(fill=NA, col=NA)
+
+expense_order <- c("Other", "Tax", "Clothes", "Food", "Rent")
+
+#strugle to get the order right and format percents
+dubois_plot <- dubois |>
+  mutate(
+    row_id=row_number(),                 
+    Class=str_to_title(Class)
+    ) |>
+  pivot_longer(
+    cols=Rent:Other, 
+    names_to="expenses", 
+    values_to="percents") |>
+  mutate(
+    percents=percents / 100,
+    expenses=factor(expenses, levels=expense_order),
+    Class=factor(Class, levels=rev(unique(Class[order(row_id)]))))
+
+  
+#main plot area
+dubois_plot_area <- ggplot(dubois_plot, aes(x=Class, y=percents, fill=expenses)) +
+  geom_bar(stat="identity", width = 0.6, color="gray45", size=0.01) +
+  coord_flip() +
+  scale_y_continuous(expand=c(0,0))+
+  scale_x_discrete(expand=c(0,0))+
+  scale_fill_manual(
+    values=c(
+      "Rent"="black", 
+      "Food"="#87678b80", 
+      "Clothes"="#da9e8c80", 
+      "Tax"="#b0c4de80", 
+      "Other"="#b0c4de30"))+
+  geom_text(aes(
+    label=ifelse(percents>=0.002,percent(`percents`, accuracy=1), ""),
+    color=ifelse(expenses=="Rent", "white", "black"),
+    family="Special Elite",
+    size=13),
+    position=position_stack(vjust=0.5))+
+  scale_color_identity()+
+  labs(
+    x=NULL,
+    y=NULL
+  )+
+  theme_minimal()+
+  theme(
+    panel.grid=element_blank(),
+    legend.position="none",
+    axis.text.x=element_blank(),
+    axis.text.y=element_blank(), 
+    plot.margin=margin(0,0,0,0),
+    panel.spacing=unit(0,"pt"),
+    panel.border = element_blank(),
+    plot.background = element_blank())
+
+
+#Referred to these: 
+#https://stackoverflow.com/questions/77028699/patchwork-package-joining-three-graphs
+# lots of references and articles from here: https://patchwork.data-imaginist.com/
+
+#matrix for patchwork
+dubois_layout <-  c(area(t=1, l=1, b=1, r=7),
+                  area(2, 1, 2, 2), 
+                  area(2, 3, 2, 7))
+
+#wrap tables to play nice with patchwork
+dubois_key_plot <- wrap_elements(dubois_key_table)
+dubois_leftcol3 <- wrap_elements(dubois_leftcol2)
+
+dubois_combo <- (
+  dubois_key_plot +
+    dubois_leftcol3 +
+    dubois_plot_area +
+  plot_layout(design=dubois_layout,  heights = c(0.2, 1.0)) +
+    theme(plot.background = element_rect(fill=NA, color=NA))
+  )
+
+parchment <- readPNG("images/paper.png")
+parchmentbg <- rasterGrob(parchment)
+
+dubois_grob <- as_grob(
+  dubois_combo +
+    plot_layout() & 
+    theme(
+      plot.background=element_rect(fill="transparent", color=NA),
+      panel.background = element_rect(fill="transparent", color=NA)))
+
+duboisfinal <- ggdraw() +
+  draw_image(parchment, scale=1, width=1, height=1) +
+  draw_grob(dubois_grob)
+
+duboisfinal
 
 ```
+
+```{r}
+#| label: Q1 Du Bois Challenge - Image
+ggsave("dubois_final2.png", duboisfinal, width=8, height=5, dpi=120)
+#inserting image to markdown:
+#![](dubois_final2.png){width=100%}
+```
+
+I didn't start with set figure height/width so I had some trouble keeping the html render consistent with the output in RStudio (without dropping the DPI to double digits). So - I'm also including as an image with the font sizes preserved better. However, the borders on the bar plot disappeared on save.
+
+![](dubois_final2.png){width="100%"}
 
 ## 2 - COVID survey - interpret
 
-```{r}
-#| label: label-me-2
+The plot provides a lot of information in one image, which is useful for comparisons but can be a bit overwhelming. It shows 6 survey questions and results by all as well as broken down by demographic information such as age, gender, race, and vaccination status. Only 2 professions are provided, suggesting those in nursing and medical fields were sampled. The plot shows mean results on scales of 1-5 (likert scale) as dots with error bars showing 10th and 90th percentile ranges. A few observations:
 
-```
+-   Four of the questions generally have shorter error bars and means at the lower end of the scale, suggesting high agreement with the statements. However, the questions regarding safety of the vaccine and concern about side effects seem to have more variability.
+
+-   The group that did not receive the vaccine shows higher mean values and longer error bars, suggesting attitudes are more mixed, which makes sense.
+
+-   The \>30 group seems to have a wider range of responses compared to the other age groups, which makes sense due to the large span compared to other groups. Those in their 20s are split into 5-year bins, with the grouped as under 20's. I'm not sure if I would expect the youngest group to be more or less cohesive. If working professionals were surveyed, this group is likely late teens - may be a smaller number sampled here which could introduce more variability despite the similar ages.
 
 ## 3 - COVID survey - reconstruct
 
+```{r}
+#| label: Q3 COVID Reconstruct - function
+
+#Read and clean
+covidsurvey <- read_csv("data/covid-survey.csv")
+
+covidsurvey <- covidsurvey |>
+  row_to_names(row_number=1) |>
+  clean_names() |>
+  filter(
+    if_any(-response_id, ~ !is.na(.)))
+
+covid_survey_longer <- covidsurvey |>
+  pivot_longer(
+    cols=starts_with("exp_"),
+    names_to="explanatory",
+    values_to="explanatory_value"
+  ) |>
+  filter(!is.na(explanatory_value)) |>
+  pivot_longer(
+    cols=starts_with("resp_"),
+    names_to="response",
+    values_to="response_value"
+  ) |>
+  mutate(response_value=as.numeric(response_value)) 
+
+question_order <- c("resp_safety", "resp_feel_safe_at_work", "resp_concern_safety", "resp_confidence_science", "resp_trust_info", "resp_will_recommend")
+
+exp_order <- c("All","exp_age_bin", "exp_gender", "exp_race", "exp_ethnicity", "exp_profession", "exp_already_vax", "exp_flu_vax")
+
+#function wrapped for q4, changed 0.10 and 0.90 to lower and upper
+function_by_group <-function(lower, upper){ 
+    covid_survey_summary_stats_by_group <- covid_survey_longer |>
+  group_by(explanatory, explanatory_value, response) |>
+  summarise(
+    mean=mean(response_value, na.rm=TRUE),
+    low=quantile(response_value, probs=lower, na.rm=TRUE), 
+    high=quantile(response_value, probs=upper, na.rm=TRUE),
+    .groups="drop") |>
+  mutate(
+    exp_values_labels=case_when(
+      #R2-5   exp_age_bin - Age: >30=30, 26-30=25, 21-25=20, <20=0
+      explanatory=="exp_age_bin" ~ factor(explanatory_value,
+                                      levels=c("30", "25", "20", "0"),
+                                      labels=c(">30", "26–30", "21–25", "<20")),
+      
+      #R6-9   exp_gender - Gender: Prefer not to say=4, Non-binary third gender=3,       Male=0, Female=1
+      explanatory=="exp_gender" ~ factor(explanatory_value,
+                                      levels=c("1", "0", "3", "4"),
+                                      labels=c("Female", "Male", 
+                                        "Non-binary third gender", 
+                                        "Prefer not to say")),
+      
+      #R10-14 exp_race - Race: White=5, Native Hawaiian/Other Pacific Islander=4,        Black/African American=3, Asian=2, American Indian/Alaskan Native=1
+      explanatory=="exp_race" ~ factor(explanatory_value,
+                                      levels=c("5", "4", "3", "2", "1"),
+                                      labels=c("White", "Native Hawaiian", 
+                                      "Black/African American", "Asian", 
+                                      "American Indian / Alaskan Native")),
+      
+      #R15-16 exp_ethnicity-Ethnicity: Non-Hispanic/Non-Latino=2, Hispanic/Latino=1
+      explanatory=="exp_ethnicity" ~ factor(explanatory_value,
+                                      levels=c("1", "2"),
+                                      labels=c("Hispanic/Latino", 
+                                                 "Non-Hispanic")),
+      
+      #R17-18 exp_profession - Profession: 1=nursing, 0=medical
+      explanatory=="exp_profession" ~ factor(explanatory_value,
+                                        levels=c("1", "0"),
+                                        labels=c("Nursing", "Medical")),
+      
+      #R19    exp_already_vax - Had COVID vaccine: 1=yes, 0=no
+      explanatory=="exp_already_vax" ~ factor(explanatory_value,
+                                        levels=c("1", "0"),
+                                        labels=c("Yes", "No")),
+      
+      #R20    exp_flu_vax - Had flu vaccine this year: 1=yes, 0=no
+      explanatory=="exp_flu_vax" ~ factor(explanatory_value,
+                                        levels=c("1", "0"),
+                                        labels=c("Yes", "No"))))
+}
+#function wrap with lower and upper
+function_by_all <-function(lower, upper){
+  covid_survey_summary_stats_all <- covid_survey_longer |>
+  group_by(response) |>
+  summarise(
+    mean=mean(response_value, na.rm=TRUE),
+    low=quantile(response_value, probs=lower, na.rm=TRUE),
+    high=quantile(response_value, probs=upper, na.rm=TRUE),
+    .groups="drop") |>
+  mutate(
+    explanatory="All",
+    explanatory_value="",
+    exp_values_labels="") |>
+  select(response, mean,low, high, explanatory, explanatory_value, exp_values_labels)
+}
+
+#functions within function
+function_summary_stats  <-function(function_by_all, function_by_group){
+  covid_survey_summary_stats <- bind_rows(
+  function_by_all, 
+  function_by_group) |>
+  mutate(
+    explanatory=factor(explanatory, levels=exp_order),
+    response=factor(response, levels=question_order),
+  )
+}
+
+#can stay the same 
+question_labels <- c(
+  "resp_safety" = "Based on my understanding, I believe the vaccine is safe",
+  "resp_feel_safe_at_work" = "Getting the vaccine will make me feel safer at work",
+  "resp_concern_safety" = "I am concerned about the safetly and side effects of the vaccine",
+  "resp_confidence_science" = "I am confident in the scientific vetting process for the new COVID vaccines",
+  "resp_trust_info" = "I trust the information that I have received about the vaccines",
+  "resp_will_recommend" = "I will recommend the vaccine to family, friends, and community members")
+
+exp_labels <- c(
+  "All"="All",
+  "exp_age_bin" = "Age",
+  "exp_gender" = "Gender",
+  "exp_race" = "Race",
+  "exp_ethnicity" = "Ethnicity",
+  "exp_profession" = "Profession",
+  "exp_already_vax" = "Had COVID vaccine",
+  "exp_flu_vax" = "Had flu vaccine this year")
+
+# Plot function
+function_plot <-function(function_summary_stats, lower, upper){
+  ggplot(function_summary_stats, aes(x = mean, y = fct_inorder(exp_values_labels))) +
+  geom_point(size = 1) +
+  geom_errorbarh(aes(xmin = low, xmax = high), height = 0.2) +
+  scale_x_continuous(limits = c(1, 5)) +
+  labs(
+    x = paste0("Mean Likert Score \n(Error bars range from ",lower*100,"th to ",upper*100,"th percentile)"),
+    y = NULL
+  ) +
+  facet_grid(explanatory ~ response, scales="free_y", space="free", labeller = labeller(
+    explanatory = exp_labels,
+    response = question_labels
+  )) +
+  theme_minimal()+
+  theme(
+    strip.background = element_rect(colour="black", fill="gray90", size=.1, linetype="solid"),
+    panel.grid.minor=element_blank(),
+    panel.grid.major=element_blank(),
+    #Got most of the text wrapping from here: https://stackoverflow.com/questions/71494583/how-to-wrap-facet-labels-using-ggtext-element-textbox
+    strip.text.x=ggtext::element_textbox_simple(width=unit(1, "npc"),
+                                          height=unit(10 * 0.5, "lines"),
+                                          lineheight=.5, 
+                                          size=25,
+                                          hjust=0.5, 
+                                          vjust=0.5, 
+                                          halign=0.5,
+                                          valign=0.5),
+    strip.text.y = ggtext::element_textbox_simple(width=unit(4, "lines"),
+                                          height=unit(2 * 0.5, "lines"),
+                                          lineheight=.5,
+                                          size=25,
+                                          hjust=0.5, 
+                                          vjust=0.5, 
+                                          halign=0.5, 
+                                          valign=0.5, 
+                                          orientation="upright"),
+    axis.text.y=element_text(
+      size=25,
+      angle=0, 
+      vjust=0.5),
+    axis.title.x=element_text(size=30, lineheight=.5))
+}
+ 
+#Referenced as well: https://www.sthda.com/english/wiki/ggplot2-facet-split-a-plot-into-a-matrix-of-panels
+
+```
+
+```{r}
+#| label: Q3 COVID Reconstruct - plot
+
+group9010 <- function_by_group(lower=0.10, upper=0.90)
+all9010 <- function_by_all(lower=0.10, upper=0.90)
+
+summary9010 <- function_summary_stats(function_by_all=all9010, function_by_group=group9010)
+
+q3plot <- function_plot(summary9010, lower=0.10, upper=0.90)
+
+ggsave("q3plot.png", q3plot, width=9, height=8, dpi=300)
+
+#![](q3plot.png){width=100%}
+```
+
+![](q3plot.png){width="100%"}
 
 ## 4 - COVID survey - re-reconstruct
 
+Code below plus some minor tweaks to the code in Q3, comments included where functions were added, plus use of same code below to now output the 10th-90th plot. Side note: I will be using this all the time! This will be extremely useful for work, I had no idea it was this simple (assuming I did it correctly!)
+
+```{r}
+#| label: Q4 COVID Re-reconstruct
+
+group2575 <- function_by_group(lower=0.25, upper=0.75)
+all2575 <- function_by_all(lower=0.25, upper=0.75)
+
+summary2575 <- function_summary_stats(function_by_all=all2575, function_by_group=group2575)
+
+q4plot <- function_plot(summary2575, lower=0.25, upper=0.75)
+
+ggsave("q4plot.png", q4plot, width=9, height=8, dpi=300)
+
+#![](q4plot.png){width=100%}
+```
+
+![](q4plot.png){width="100%"}
+
+Compared to the previous plot using 10th to 90th percentile, overall this plot shows similar trends between questions and amongst those who did not receive the vaccine. The main difference that stands out is that the over 30s group seems more in line with the other age groups - in where the means fall and length of error bars.
+
 ## 5 - COVID survey - another view
+
+```{r}
+#| label: Q5 Another View
+#| fig.width: 8
+#| fig.height: 6
+
+#Thanks to David Kyle for suggesting swapping 4 and 5 on stack! Couldn't get the 100% in the right order though.
+likert_order <- c("1", "2", "3", "5", "4")
+likert_order2 <- c("1", "2", "3", "4", "5")
+
+likert_key <- c(
+  "5" = "Strongly Disagree",
+  "4" = "Somewhat Disagree",
+  "3" = "Neither Agree or Disagree",
+  "2" = "Somewhat Agree",
+  "1" = "Strongly Agree")
+
+likert_key_colors <- c(
+    "5" = "red", 
+    "4" = "orange", 
+    "3" = "yellow",
+    "2" = "green",
+    "1" = "darkgreen")
+
+response_proportions <- covid_survey_longer |>
+  filter(response %in% question_order, !is.na(response_value)) |>
+  group_by(response, response_value) |>
+  summarise(n=n(), .groups="drop") |> 
+  group_by(response) |>
+  mutate(proportion=n/sum(n)) |>
+  ungroup()
+
+response_diverge <- response_proportions |>
+  mutate(
+    direction=case_when(
+      response_value %in% c("4", "5") ~ "disagree"),
+  response_value=factor(response_value, levels=likert_order),
+  proportion_split=case_when(
+    direction=="disagree" ~ -proportion,
+    TRUE ~ proportion),
+  type="Diverging")
+
+response_100 <- response_proportions |>
+  mutate(proportion_split=proportion, type="100%",
+         response_value=factor(response_value, levels=likert_order2))
+
+propdata <- bind_rows(response_diverge, response_100) |>
+  mutate(response=factor(response, levels=question_order),
+         type=factor(type, levels=c("Diverging", "100%")) )
+
+q5plot <- ggplot(propdata, aes(x=proportion_split, y=fct_relabel(response, ~str_wrap(question_labels[.x], width=25)), fill=response_value))+
+  geom_bar(position="stack", stat="identity", width=.8)+
+  facet_wrap(~type, ncol=2, scales="free_x")+
+  scale_fill_manual(values=likert_key_colors, labels=likert_key, name=NULL)+
+  scale_x_continuous(labels=scales::percent_format(accuracy=1)) +
+  labs(
+    x="Proportion of Responses",
+    y=NULL
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position="top",
+    legend.justification="left")
+
+q5plot
+```
+
+The diverging graph is helpful for providing a quick comparison of what proportion of responses fell in the agree (1-2) and disagree(4-5) buckets for each statement by looking at where the bars extend around zero. This would be even better illustrated if I had made the x-axis range from -100 to 100% and perhaps visually separated each side with a line at zero. While the colors for each response are helpful to see which is driving the bar's direction (mostly "strongly agree" responses), I find it less useful for comparing the 5 response types. For this, the alignment of the 100% plot makes it easier to compare and is better for looking at the neutral group, which gets lost in middle of the diverging plot.
